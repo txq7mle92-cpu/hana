@@ -16,35 +16,77 @@
         .category-title { font-size: 17px; color: #2d3436; padding-left: 10px; border-left: 5px solid var(--primary-color); margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
         .category-count { font-size: 11px; background-color: var(--primary-color); color: white; padding: 2px 8px; border-radius: 12px; }
         .product-list { display: flex; flex-direction: column; gap: 8px; }
-        .product-item { background: var(--card-bg); padding: 12px 15px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: space-between; }
+        .product-item { background: var(--card-bg); padding: 12px 15px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+        .product-item:active { background-color: #f1f2f6; }
         .product-link { text-decoration: none; color: var(--text-color); font-weight: 500; font-size: 14px; flex: 1; padding-right: 10px; word-break: break-all; }
-        .go-btn { background-color: #ffeaa7; color: #d63031; padding: 5px 10px; border-radius: 15px; font-size: 11px; font-weight: bold; text-decoration: none; white-space: nowrap; }
+        .go-btn { background-color: #ffeaa7; color: #d63031; padding: 5px 12px; border-radius: 15px; font-size: 12px; font-weight: bold; text-decoration: none; white-space: nowrap; border: none; cursor: pointer; }
         .loading, .error-msg { text-align: center; padding: 40px; color: #636e72; font-size: 15px; }
         footer { text-align: center; color: #b2bec3; font-size: 11px; margin-top: 40px; }
+        
+        /* 弹窗高级样式 */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(2px); }
+        .modal-content { background-color: #fff; margin: 15% auto; padding: 25px; border-radius: 16px; width: 90%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); position: relative; animation: slideDown 0.3s ease; }
+        @keyframes slideDown { from {transform: translateY(-20px); opacity: 0;} to {transform: translateY(0); opacity: 1;} }
+        .close-btn { position: absolute; right: 15px; top: 12px; font-size: 26px; font-weight: bold; color: #b2bec3; cursor: pointer; border: none; background: none; }
+        .close-btn:hover { color: #2d3436; }
+        .modal-img { width: 100%; max-height: 250px; object-fit: contain; border-radius: 8px; margin-bottom: 15px; background-color: #f9f9fa; }
+        .modal-info p { margin-bottom: 12px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #eee; padding-bottom: 8px; }
+        .modal-info p:last-child { border-bottom: none; margin-bottom: 0; }
+        .modal-info span { color: #e84393; font-weight: 800; font-size: 14px; text-align: right; }
+        .modal-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; text-align: left; color: #2d3436; line-height: 1.4; padding-right: 20px; }
     </style>
 </head>
 <body>
     <header>
-        <h1>🎁 食玩王国 · 今日最新情报站</h1>
+        <h1>🎁 今日最新食玩情报站</h1>
         <p id="update-time">正在获取最新同步时间...</p>
     </header>
+    
     <div class="container" id="main-content">
         <div class="loading">✨ 正在为您拼命加载最新商品数据...</div>
     </div>
-    <footer>数据自动同步自 syokugan-ohkoku.com · 仅供内部交流使用</footer>
+    <footer>专属内部分享站 · 严禁外传</footer>
+
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closeModal()">&times;</button>
+            <div class="modal-title" id="m-title">加载中...</div>
+            <img id="m-img" class="modal-img" src="" alt="商品图片">
+            <div class="modal-info">
+                <p>📦 在庫状況: <span id="m-stock">未知</span></p>
+                <p>🏷️ JANコード: <span id="m-jan" style="color:#6c5ce7; user-select: all;">未知</span></p>
+                <p>💰 希望小売価格: <span id="m-p1">未知</span></p>
+                <p>💵 当店販売価格: <span id="m-p2">未知</span></p>
+                <p>🏦 代引・振込価格: <span id="m-p3">未知</span></p>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let allItems = []; // 全局保存所有商品，供弹窗使用
+
         fetch('shokugan_list.json', { cache: "no-cache" })
             .then(res => { if (!res.ok) throw new Error(); return res.json(); })
             .then(data => {
-                document.getElementById('update-time').innerText = "数据自动更新时间 (北京时间)：" + (data.update_time || "未知");
+                document.getElementById('update-time').innerText = "数据自动更新时间：" + (data.update_time || "未知");
                 let htmlContent = "";
-                const categories = ["先行予約商品", "新食玩情報", "最新入荷済", "まもなく入荷", "再入荷"];
+                const categories = ["先行予約商品", "最新入荷済", "新食玩情報"];
+                let globalIndex = 0;
+                
                 categories.forEach(cat => {
                     const items = data[cat] || [];
                     if (items.length > 0) {
-                        htmlContent += `<div class="category-section"><h2 class="category-title"><span>📂 ${cat}</span><span class="category-count">${items.length} 个商品</span></h2><div class="product-list">`;
+                        htmlContent += `<div class="category-section"><h2 class="category-title"><span>📂 ${cat}</span><span class="category-count">${items.length} 款</span></h2><div class="product-list">`;
+                        
                         items.forEach(item => {
-                            htmlContent += `<div class="product-item"><a class="product-link" href="${item.url}" target="_blank">🤖 ${item.title}</a><a class="go-btn" href="${item.url}" target="_blank">详情 →</a></div>`;
+                            if (!item.title || item.title.includes("更新失败")) return;
+                            allItems[globalIndex] = item;
+                            htmlContent += `
+                            <div class="product-item" onclick="showModal(${globalIndex})">
+                                <a class="product-link" href="javascript:void(0)">🤖 ${item.title}</a>
+                                <button class="go-btn">查看详情</button>
+                            </div>`;
+                            globalIndex++;
                         });
                         htmlContent += `</div></div>`;
                     }
@@ -52,8 +94,36 @@
                 document.getElementById('main-content').innerHTML = htmlContent || '<div class="loading">今日暂无更新商品数据。</div>';
             })
             .catch(() => {
-                document.getElementById('main-content').innerHTML = `<div class="error-msg">❌ 数据加载中或尚未生成<br><span style="font-size:12px;color:#999;">提示：如果是第一次建好仓库，请按照说明去 Actions 里手动运行一次爬虫。</span></div>`;
+                document.getElementById('main-content').innerHTML = `<div class="error-msg">❌ 数据加载中或尚未生成</div>`;
             });
+
+        // 弹窗控制逻辑
+        function showModal(idx) {
+            const item = allItems[idx];
+            if (!item) return;
+            document.getElementById('m-title').innerText = item.title;
+            // 如果没抓到图片，显示占位图
+            document.getElementById('m-img').src = item.img || 'https://via.placeholder.com/300x250?text=暂无图片';
+            document.getElementById('m-stock').innerText = item.stock || '未知';
+            document.getElementById('m-jan').innerText = item.jan || '未知';
+            document.getElementById('m-p1').innerText = item.p1 || '未知';
+            document.getElementById('m-p2').innerText = item.p2 || '未知';
+            document.getElementById('m-p3').innerText = item.p3 || '未知';
+            document.getElementById('detailModal').style.display = 'block';
+            document.body.style.overflow = 'hidden'; // 背景禁止滚动
+        }
+
+        function closeModal() {
+            document.getElementById('detailModal').style.display = 'none';
+            document.body.style.overflow = 'auto'; // 恢复滚动
+        }
+
+        window.onclick = function(event) {
+            const modal = document.getElementById('detailModal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
     </script>
 </body>
 </html>
