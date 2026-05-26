@@ -3,68 +3,62 @@ from bs4 import BeautifulSoup
 import json
 import time
 
-BASE_URL = "https://syokugan-ohkoku.com/"
-# 增加分类，涵盖更多可能
-TARGET_URLS = [
-    "https://syokugan-ohkoku.com/item/order-syokugan/yoyaku/index.php",
-    "https://syokugan-ohkoku.com/item/order-syokugan/new/index.php",
-    "https://syokugan-ohkoku.com/item/order-syokugan/nyuka/index.php"
-]
+# 核心：使用 Session 来保持像浏览器一样的访问状态
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7"
+})
 
-def fetch_product(url):
+BASE_URL = "https://syokugan-ohkoku.com/"
+
+def parse_item(url):
+    """精准解析详情页"""
     try:
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-        res.encoding = 'EUC-JP'
+        res = session.get(url, timeout=15)
+        res.encoding = 'EUC-JP' # 关键：强制设置编码
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 暴力提取所有表格文字
-        full_text = soup.get_text(separator="|")
-        
-        # 定义一个简单的提取器
-        def find_val(keyword):
-            if keyword in full_text:
-                return full_text.split(keyword)[1].split("|")[0].strip()
+        # 定义一个提取器，专门找表格里的文字
+        def get_cell(label):
+            # 找到包含该label的行，并取其旁边的td
+            for td in soup.find_all('td'):
+                if label in td.get_text():
+                    next_td = td.find_next_sibling('td')
+                    return next_td.get_text(strip=True) if next_td else "N/A"
             return "N/A"
 
-        # 尝试获取图片
-        img = soup.find('img', {'class': 'item-image'})
-        img_src = BASE_URL + img['src'].lstrip('/') if img else ""
-
         return {
-            "img": img_src,
-            "jan": find_val("JAN"),
-            "stock": find_val("在庫状況"),
-            "p1": find_val("希望小売価格"),
-            "p2": find_val("当店販売価格"),
-            "p3": find_val("代引・振込")
+            "title": soup.find('h1').get_text(strip=True) if soup.find('h1') else "Unknown",
+            "jan": get_cell("JAN"),
+            "stock": get_cell("在庫"),
+            "p1": get_cell("希望小売価格"),
+            "p2": get_cell("販売価格"),
+            "p3": get_cell("代引")
         }
     except:
-        return {"img": "", "jan": "Error", "stock": "Error", "p1": "Error", "p2": "Error", "p3": "Error"}
+        return None
 
 def main():
-    all_data = []
-    for start_url in TARGET_URLS:
-        try:
-            res = requests.get(start_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-            res.encoding = 'EUC-JP'
-            soup = BeautifulSoup(res.text, 'html.parser')
-            # 获取所有链接
-            for a in soup.find_all('a', href=True):
-                href = a['href']
-                if "item.php" in href or "ItemDetail" in href:
-                    full_link = href if href.startswith('http') else BASE_URL + href.lstrip('/')
-                    title = a.get_text(strip=True)
-                    if len(title) > 2:
-                        product = fetch_product(full_link)
-                        product['title'] = title
-                        product['url_origin'] = full_link # 调试用
-                        all_data.append(product)
-                        time.sleep(1) # 增加延迟，防止被拦截
-        except:
-            continue
-            
+    # 这里放置你的分类页 URL
+    category_url = "https://syokugan-ohkoku.com/item/order-syokugan/new/index.php"
+    res = session.get(category_url)
+    res.encoding = 'EUC-JP'
+    soup = BeautifulSoup(res.text, 'html.parser')
+    
+    results = []
+    # 抓取所有符合条件的商品链接
+    for a in soup.find_all('a', href=True):
+        if 'item.php?code=' in a['href']:
+            link = BASE_URL + a['href'].lstrip('/')
+            print(f"正在抓取: {link}")
+            data = parse_item(link)
+            if data:
+                results.append(data)
+            time.sleep(1.5) # 必须增加延迟，否则会被网站直接断开
+    
     with open("shokugan_list.json", "w", encoding="utf-8") as f:
-        json.dump(all_data, f, ensure_ascii=False, indent=4)
+        json.dump(results, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
     main()
