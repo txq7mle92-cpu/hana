@@ -4,61 +4,67 @@ import json
 import time
 
 BASE_URL = "https://syokugan-ohkoku.com/"
-# 分类入口
-CATEGORIES = {
-    "先行予約": "item/order-syokugan/yoyaku/index.php",
-    "新食玩": "item/order-syokugan/new/index.php",
-    "入荷済": "item/order-syokugan/nyuka/index.php"
-}
+# 增加分类，涵盖更多可能
+TARGET_URLS = [
+    "https://syokugan-ohkoku.com/item/order-syokugan/yoyaku/index.php",
+    "https://syokugan-ohkoku.com/item/order-syokugan/new/index.php",
+    "https://syokugan-ohkoku.com/item/order-syokugan/nyuka/index.php"
+]
 
-def fetch_details(url):
-    """进入商品详情页，精准挖出5个核心数据"""
+def fetch_product(url):
     try:
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         res.encoding = 'EUC-JP'
-        soup = BeautifulSoup(res.text, 'lxml')
+        soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 定义获取函数
-        def get_text_by_label(label):
-            for row in soup.find_all('tr'):
-                if label in row.get_text():
-                    return row.find_all('td')[-1].get_text(strip=True)
-            return "无"
+        # 暴力提取所有表格文字
+        full_text = soup.get_text(separator="|")
+        
+        # 定义一个简单的提取器
+        def find_val(keyword):
+            if keyword in full_text:
+                return full_text.split(keyword)[1].split("|")[0].strip()
+            return "N/A"
+
+        # 尝试获取图片
+        img = soup.find('img', {'class': 'item-image'})
+        img_src = BASE_URL + img['src'].lstrip('/') if img else ""
 
         return {
-            "img": BASE_URL + soup.find('img', {'class': 'item-image'})['src'].lstrip('/') if soup.find('img', {'class': 'item-image'}) else "",
-            "jan": get_text_by_label('JAN'),
-            "stock": get_text_by_label('在庫'),
-            "p1": get_text_by_label('希望小売'),
-            "p2": get_text_by_label('販売価格'),
-            "p3": get_text_by_label('代引・振込')
+            "img": img_src,
+            "jan": find_val("JAN"),
+            "stock": find_val("在庫状況"),
+            "p1": find_val("希望小売価格"),
+            "p2": find_val("当店販売価格"),
+            "p3": find_val("代引・振込")
         }
     except:
-        return {"img": "", "jan": "N/A", "stock": "N/A", "p1": "N/A", "p2": "N/A", "p3": "N/A"}
+        return {"img": "", "jan": "Error", "stock": "Error", "p1": "Error", "p2": "Error", "p3": "Error"}
 
-def run_spider():
-    final_data = {}
-    for cat_name, path in CATEGORIES.items():
-        print(f"正在抓取分类: {cat_name}")
-        res = requests.get(BASE_URL + path, headers={"User-Agent": "Mozilla/5.0"})
-        res.encoding = 'EUC-JP'
-        soup = BeautifulSoup(res.text, 'lxml')
-        
-        items = []
-        for a in soup.find_all('a', href=True):
-            if 'code=' in a['href']:
-                url = BASE_URL + a['href'].lstrip('/')
-                title = a.get_text(strip=True)
-                if len(title) < 3: continue
-                
-                details = fetch_details(url)
-                details['title'] = title
-                items.append(details)
-                time.sleep(0.5) # 保护性延时
-        final_data[cat_name] = items
-        
+def main():
+    all_data = []
+    for start_url in TARGET_URLS:
+        try:
+            res = requests.get(start_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+            res.encoding = 'EUC-JP'
+            soup = BeautifulSoup(res.text, 'html.parser')
+            # 获取所有链接
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if "item.php" in href or "ItemDetail" in href:
+                    full_link = href if href.startswith('http') else BASE_URL + href.lstrip('/')
+                    title = a.get_text(strip=True)
+                    if len(title) > 2:
+                        product = fetch_product(full_link)
+                        product['title'] = title
+                        product['url_origin'] = full_link # 调试用
+                        all_data.append(product)
+                        time.sleep(1) # 增加延迟，防止被拦截
+        except:
+            continue
+            
     with open("shokugan_list.json", "w", encoding="utf-8") as f:
-        json.dump(final_data, f, ensure_ascii=False, indent=4)
+        json.dump(all_data, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
-    run_spider()
+    main()
