@@ -1,60 +1,60 @@
 import requests
 from bs4 import BeautifulSoup
 import json
-from datetime import datetime, timedelta
+import time
 
-# 目标商品页
-TARGET_URL = "https://syokugan-ohkoku.com/item.php?code=2602151"
+BASE_URL = "https://syokugan-ohkoku.com/"
+# 列表页通常包含在导航栏中，这里根据你的网站结构进行遍历
+# 如果有分页，需根据页面逻辑添加，这里先抓取首页及主要入口
+START_URLS = [
+    "https://syokugan-ohkoku.com/item/order-syokugan/index.php",
+    # 如果有更多分页，可以在此添加
+]
 
-def get_data():
+def get_product_details(url):
     try:
-        # 使用浏览器标识请求
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        res = requests.get(TARGET_URL, headers=headers, timeout=10)
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        res.encoding = 'EUC-JP' # 核心：解决乱码
+        soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 强制指定编码为 EUC-JP，这是解决乱码的核心
-        res.encoding = 'EUC-JP'
+        # 提取详情
+        details = {"jan": "未知", "stock": "未知", "p1": "未知", "p2": "未知", "p3": "未知"}
         
-        soup = BeautifulSoup(res.text, 'lxml')
-        
-        # 精准提取信息
-        title = soup.find('h1').get_text(strip=True) if soup.find('h1') else "商品名称获取失败"
-        
-        # 抓取图片（假设图片在某个特定的容器内）
-        img_tag = soup.find('img', {'class': 'item-image'}) or soup.find('div', {'id': 'item-img'}).find('img')
-        img_url = img_tag['src'] if img_tag else ""
-        if img_url and not img_url.startswith('http'):
-            img_url = "https://syokugan-ohkoku.com/" + img_url.lstrip('/')
-
-        # 提取表格数据 (根据该网站常见的结构)
-        data = {}
+        # 暴力定位表格中的数据
         for row in soup.find_all('tr'):
             text = row.get_text(separator='|')
-            if 'JAN' in text: data['jan'] = text.split('|')[-1]
-            if '在庫' in text: data['stock'] = text.split('|')[-1]
-            if '希望小売価格' in text: data['p1'] = text.split('|')[-1]
-            if '当店販売価格' in text: data['p2'] = text.split('|')[-1]
-            if '代引・振込' in text: data['p3'] = text.split('|')[-1]
-
-        # 整理结果
-        result = {
-            "update_time": (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
-            "product": {
-                "title": title,
-                "img": img_url,
-                "jan": data.get('jan', '未知'),
-                "stock": data.get('stock', '未知'),
-                "p1": data.get('p1', '未知'),
-                "p2": data.get('p2', '未知'),
-                "p3": data.get('p3', '未知')
-            }
-        }
+            if 'JAN' in text: details['jan'] = text.split('|')[-1].strip()
+            if '在庫' in text: details['stock'] = text.split('|')[-1].strip()
+            if '希望小売価格' in text: details['p1'] = text.split('|')[-1].strip()
+            if '当店販売価格' in text: details['p2'] = text.split('|')[-1].strip()
+            if '代引・振込' in text: details['p3'] = text.split('|')[-1].strip()
         
-        with open("shokugan_list.json", "w", encoding="utf-8") as f:
-            json.dump(result, f, ensure_ascii=False, indent=4)
-            
-    except Exception as e:
-        print(f"Error: {e}")
+        return details
+    except:
+        return {}
+
+def main():
+    all_products = []
+    # 抓取入口列表
+    for start_url in START_URLS:
+        res = requests.get(start_url, headers={"User-Agent": "Mozilla/5.0"})
+        res.encoding = 'EUC-JP'
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 找到所有商品链接
+        for a in soup.find_all('a', href=True):
+            if 'item.php?code=' in a['href'] or 'ItemDetail' in a['href']:
+                product_url = a['href'] if a['href'].startswith('http') else BASE_URL + a['href'].lstrip('/')
+                title = a.get_text(strip=True)
+                
+                # 抓取详情
+                details = get_product_details(product_url)
+                details.update({"title": title, "url": product_url})
+                all_products.append(details)
+                time.sleep(0.5) # 遵守礼貌，防封IP
+    
+    with open("shokugan_list.json", "w", encoding="utf-8") as f:
+        json.dump(all_products, f, ensure_ascii=False, indent=4)
 
 if __name__ == "__main__":
-    get_data()
+    main()
