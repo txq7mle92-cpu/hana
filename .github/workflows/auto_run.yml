@@ -1,0 +1,37 @@
+name: Shokugan Website Auto Updater
+
+on:
+  schedule:
+    # 每天北京时间早上 8:00, 中午 12:00, 晚上 20:00 各自动更新一次
+    - cron: '0 0,4,12 * * *'
+  workflow_dispatch: 
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: 1. 检出仓库代码
+      uses: actions/checkout@v4
+
+    - name: 2. 初始化 Python 环境
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: 3. 安装依赖包
+      run: |
+        pip install -r requirements.txt
+
+    - name: 4. 运行爬虫脚本更新数据
+      run: python spider.py
+
+    - name: 5. 自动提交新数据并发布到网页
+      run: |
+        git config --local user.email "actions@github.com"
+        git config --local user.name "GitHub Actions"
+        git add shokugan_list.json
+        git commit -m "自动同步最新食玩数据" || exit 0
+        git push
